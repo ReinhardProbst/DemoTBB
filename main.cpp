@@ -1,21 +1,30 @@
 #include <iostream>
 #include <string>
-#include <cstdio>
+#include <chrono>
+#include <thread>
 
 #include <pthread.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/syscall.h>
+
+#include <boost/timer/timer.hpp>
 
 #include <tbb/tbb.h>
 
-#include <boost/thread/thread.hpp>
-#include <boost/timer/timer.hpp>
+void f1()
+{
+    std::cout << "Job f1 done ..." << std::endl;
+};
+
+void f2()
+{
+    std::cout << "Job gf2 done ..." << std::endl;
+};
 
 void foo(const tbb::blocked_range<size_t>& r)
 {
-    boost::this_thread::sleep_for(boost::chrono::seconds(30));
+    std::this_thread::sleep_for(std::chrono::seconds(5));
     std::cout << r.begin() << "/"<< r.end() << std::endl;
+    std::cout << "Job done ..." << std::endl;
 };
 
 struct Observer : tbb::task_scheduler_observer
@@ -49,38 +58,32 @@ struct Observer : tbb::task_scheduler_observer
     void on_scheduler_exit(bool) { std::cout << "Off:" << pthread_self() << std::endl; }
 };
 
-constexpr int loop_cnt = 1000000;
+constexpr int loop_cnt = 3;
+constexpr int max_threads = 4;
 
 int main(void)
 {
-#if 0
+    Observer observer;
+    tbb::task_scheduler_init init(max_threads);
 
+    std::cout << "TBB threads, max available: " << init.default_num_threads() << std::endl;
 
-    std::string str;
-    int result;
+    std::function<void(const tbb::blocked_range<size_t>& r)> f = foo;
 
     {
         boost::timer::auto_cpu_timer act;
 
-        for(int i = 0; i < LOOP_CNT; i++)
+        for(int i = 0; i < loop_cnt; i++)
         {
-            str = std::to_string(i);
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, 16, 4), f, tbb::simple_partitioner());
+
+            std::cout << "All _for_ jobs done ..." << std::endl;
+
+            tbb::parallel_invoke([](){f1();}, [](){f2();});
+
+            std::cout << "All _invoke_ jobs done ..." << std::endl;
         }
     }
-#endif
-
-    Observer observer;
-    tbb::task_scheduler_init init;
-
-    std::cout << "TBB threads created: " << init.default_num_threads() << std::endl;
-
-    std::function<void(const tbb::blocked_range<size_t>& r)> f = foo;
-
-    tbb::parallel_for(tbb::blocked_range<size_t>(0,16), f, tbb::auto_partitioner());
-
-    std::cout << "Job done ..." << std::endl;
-
-    boost::this_thread::sleep_for(boost::chrono::seconds(30));
 
     exit(0);
 }
